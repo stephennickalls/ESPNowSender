@@ -1,27 +1,22 @@
 
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
-#include <DHT.h>
 #include <esp_now.h>
 #include <esp_sleep.h>
+#include <DHT.h>
 #include <WiFi.h>
 
-#define DHTPIN 4   
+#define DHTPIN 4 
 #define DHTTYPE DHT22
+
 DHT dht(DHTPIN, DHTTYPE);
 
-//Recevier MAC Address
-uint8_t broadcastAddress[] = {0xB0, 0xB2, 0x1C, 0xA6, 0x5F, 0x50};
-
+// REPLACE WITH YOUR RECEIVER MAC Address
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 // Structure example to send data
 // Must match the receiver structure
 typedef struct struct_message {
-  char typeA[32];
   float temp;
-  char typeB[32];
-  float humidity;
+  float humid;
 } struct_message;
 
 // Create a struct_message called myData
@@ -29,10 +24,15 @@ struct_message myData;
 
 esp_now_peer_info_t peerInfo;
 
+const uint64_t sleepInterval = 200000000; // 10 minutes in microseconds
+
 // callback when data is sent
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   Serial.print("\r\nLast Packet Send Status:\t");
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  Serial.println("Stop broadcasting, going to deep sleep...");
+  esp_sleep_enable_timer_wakeup(sleepInterval);
+  esp_deep_sleep_start();
 }
  
 void setup() {
@@ -49,8 +49,7 @@ void setup() {
     return;
   }
 
-  // Once ESPNow is successfully Init,  register for callback to
-  // get the status of trasnmitted packet
+  // get the status of Trasnmitted packet
   esp_now_register_send_cb(OnDataSent);
   
   // Register peer
@@ -68,13 +67,18 @@ void setup() {
 void loop() {
 
   float temp = dht.readTemperature();
-  float humidity = dht.readHumidity();
+  float humid = dht.readHumidity();
 
+  // Check if any reads failed and exit early (to try again).
+  if (isnan(humid) || isnan(temp)) {
+      Serial.println("Failed to read from DHT sensor!");
+      // Go to deep sleep again
+      // esp_sleep_enable_timer_wakeup(sleepInterval);
+      // esp_deep_sleep_start();
+  }
   // Set values to send
-  strcpy(myData.typeA, "Temp reading");
   myData.temp = temp;
-  strcpy(myData.typeB, "Humidity reading");
-  myData.humidity = humidity;
+  myData.humid = humid;
   
   // Send message via ESP-NOW
   esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &myData, sizeof(myData));
